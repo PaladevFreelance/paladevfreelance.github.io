@@ -1,0 +1,1204 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Planning Bénévoles</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./config.js"></script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect } = React;
+
+        const { createClient } = supabase;
+        const supabaseUrl = SUPABASE_CONFIG.url;
+        const supabaseKey = SUPABASE_CONFIG.key;
+        const supabaseClient = createClient(supabaseUrl, supabaseKey);
+
+        const HOURS = Array.from({ length: 18 }, (_, i) => i + 6);
+
+        const App = () => {
+            const [isAdmin, setIsAdmin] = useState(false);
+            const [password, setPassword] = useState('');
+            const [view, setView] = useState('home');
+            const [volunteers, setVolunteers] = useState([]);
+            const [posts, setPosts] = useState([]);
+            const [assignments, setAssignments] = useState([]);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [editingVolunteer, setEditingVolunteer] = useState(null);
+            const [editingPost, setEditingPost] = useState(null);
+            const [expandedPostId, setExpandedPostId] = useState(null);
+            const [selectedPostInfo, setSelectedPostInfo] = useState(null);
+            const [loading, setLoading] = useState(true);
+
+            useEffect(() => {
+                loadAllData();
+            }, []);
+
+            const loadAllData = async () => {
+                setLoading(true);
+                try {
+                    const [volunteersData, postsData, assignmentsData] = await Promise.all([
+                        supabaseClient.from('volunteers').select('*'),
+                        supabaseClient.from('posts').select('*'),
+                        supabaseClient.from('assignments').select('*')
+                    ]);
+                    if (volunteersData.data) setVolunteers(volunteersData.data);
+                    if (postsData.data) setPosts(postsData.data);
+                    if (assignmentsData.data) setAssignments(assignmentsData.data);
+                } catch (error) {
+                    console.error('Erreur:', error);
+                }
+                setLoading(false);
+            };
+
+            const handleLogin = async () => {
+                const correctPasswordHash = '382caa66a7f5c82ddabdbad8102f891407791cd0356f901e109677ebe62af186';
+                
+                try {
+                    const encoder = new TextEncoder();
+                    const data = encoder.encode(password);
+                    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+                    const hashArray = Array.from(new Uint8Array(hashBuffer));
+                    const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+                    
+                    if (hashHex === correctPasswordHash) {
+                        setIsAdmin(true);
+                        setPassword('');
+                    } else {
+                        alert('Mot de passe incorrect');
+                    }
+                } catch (error) {
+                    console.error('Erreur:', error);
+                    alert('Erreur lors de la connexion');
+                }
+            };
+
+            const handleLogout = () => {
+                setIsAdmin(false);
+                setView('home');
+            };
+
+            const saveVolunteer = async (volunteer) => {
+                try {
+                    if (volunteer.id) {
+                        const { data, error } = await supabaseClient
+                            .from('volunteers')
+                            .update(volunteer)
+                            .eq('id', volunteer.id)
+                            .select();
+                        if (error) throw error;
+                        setVolunteers(volunteers.map(v => v.id === volunteer.id ? data[0] : v));
+                    } else {
+                        const { id, ...volunteerData } = volunteer;
+                        const { data, error } = await supabaseClient
+                            .from('volunteers')
+                            .insert([volunteerData])
+                            .select();
+                        if (error) throw error;
+                        setVolunteers([...volunteers, data[0]]);
+                    }
+                    setEditingVolunteer(null);
+                } catch (error) {
+                    alert('Erreur lors de la sauvegarde');
+                }
+            };
+
+            const deleteVolunteer = async (id) => {
+                if (confirm('Êtes-vous sûr de vouloir supprimer ce bénévole ?')) {
+                    try {
+                        await supabaseClient.from('assignments').delete().eq('volunteerId', id);
+                        await supabaseClient.from('volunteers').delete().eq('id', id);
+                        setVolunteers(volunteers.filter(v => v.id !== id));
+                        setAssignments(assignments.filter(a => a.volunteerId !== id));
+                    } catch (error) {
+                        alert('Erreur lors de la suppression');
+                    }
+                }
+            };
+
+            const savePost = async (post) => {
+                try {
+                    if (post.id) {
+                        const { data, error } = await supabaseClient
+                            .from('posts')
+                            .update(post)
+                            .eq('id', post.id)
+                            .select();
+                        if (error) throw error;
+                        setPosts(posts.map(p => p.id === post.id ? data[0] : p));
+                    } else {
+                        const { id, ...postData } = post;
+                        const { data, error } = await supabaseClient
+                            .from('posts')
+                            .insert([postData])
+                            .select();
+                        if (error) throw error;
+                        setPosts([...posts, data[0]]);
+                    }
+                    setEditingPost(null);
+                } catch (error) {
+                    alert('Erreur lors de la sauvegarde du poste');
+                }
+            };
+
+            const deletePost = async (id) => {
+                if (confirm('Êtes-vous sûr de vouloir supprimer ce poste ?')) {
+                    try {
+                        await supabaseClient.from('assignments').delete().eq('postId', id);
+                        await supabaseClient.from('posts').delete().eq('id', id);
+                        setPosts(posts.filter(p => p.id !== id));
+                        setAssignments(assignments.filter(a => a.postId !== id));
+                    } catch (error) {
+                        alert('Erreur lors de la suppression');
+                    }
+                }
+            };
+
+            const checkConflict = (volunteerId, hour, postId) => {
+                return assignments.some(a => 
+                    a.volunteerId === volunteerId && 
+                    a.hour === hour && 
+                    a.postId !== postId
+                );
+            };
+
+            const getAssignments = (postId, hour) => {
+                return assignments.filter(a => a.postId === postId && a.hour === hour);
+            };
+
+            const addAssignment = async (postId, hour, volunteerId) => {
+                if (checkConflict(volunteerId, hour, postId)) {
+                    const volunteer = volunteers.find(v => v.id === volunteerId);
+                    const existingAssignment = assignments.find(a => a.volunteerId === volunteerId && a.hour === hour);
+                    const existingPost = posts.find(p => p.id === existingAssignment.postId);
+                    
+                    if (confirm(`⚠️ ${volunteer.prenom} ${volunteer.nom} est déjà affecté au poste "${existingPost.nom}" à ${hour}h.\n\nVoulez-vous le déplacer vers ce nouveau poste ?`)) {
+                        try {
+                            await supabaseClient
+                                .from('assignments')
+                                .delete()
+                                .eq('volunteerId', volunteerId)
+                                .eq('hour', hour);
+                            
+                            const { data, error } = await supabaseClient
+                                .from('assignments')
+                                .insert([{ postId, hour, volunteerId }])
+                                .select();
+                            
+                            if (error) throw error;
+                            const filtered = assignments.filter(a => !(a.volunteerId === volunteerId && a.hour === hour));
+                            setAssignments([...filtered, data[0]]);
+                        } catch (error) {
+                            alert('Erreur lors du déplacement');
+                        }
+                    }
+                    return;
+                }
+                
+                try {
+                    const { data, error } = await supabaseClient
+                        .from('assignments')
+                        .insert([{ postId, hour, volunteerId }])
+                        .select();
+                    
+                    if (error) throw error;
+                    setAssignments([...assignments, data[0]]);
+                } catch (error) {
+                    alert('Erreur lors de l\'affectation');
+                }
+            };
+
+            const removeAssignment = async (assignmentId) => {
+                try {
+                    await supabaseClient
+                        .from('assignments')
+                        .delete()
+                        .eq('id', assignmentId);
+                    
+                    setAssignments(assignments.filter(a => a.id !== assignmentId));
+                } catch (error) {
+                    alert('Erreur lors de la suppression');
+                }
+            };
+
+            const getAssignmentsByVolunteer = (volunteerId) => {
+                return assignments
+                    .filter(a => a.volunteerId === volunteerId)
+                    .sort((a, b) => a.hour - b.hour);
+            };
+
+            const mergeConsecutiveSlots = (volunteerAssignments) => {
+                if (volunteerAssignments.length === 0) return [];
+                
+                const merged = [];
+                let current = {
+                    postId: volunteerAssignments[0].postId,
+                    startHour: volunteerAssignments[0].hour,
+                    endHour: volunteerAssignments[0].hour + 1
+                };
+                
+                for (let i = 1; i < volunteerAssignments.length; i++) {
+                    const assignment = volunteerAssignments[i];
+                    
+                    if (assignment.postId === current.postId && assignment.hour === current.endHour) {
+                        current.endHour = assignment.hour + 1;
+                    } else {
+                        merged.push(current);
+                        current = {
+                            postId: assignment.postId,
+                            startHour: assignment.hour,
+                            endHour: assignment.hour + 1
+                        };
+                    }
+                }
+                
+                merged.push(current);
+                return merged;
+            };
+
+            const exportData = () => {
+                const data = { volunteers, posts, assignments };
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `planning-benevoles-${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+            };
+
+            const importData = (event) => {
+                const file = event.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        try {
+                            const data = JSON.parse(e.target.result);
+                            if (data.volunteers) setVolunteers(data.volunteers);
+                            if (data.posts) setPosts(data.posts);
+                            if (data.assignments) setAssignments(data.assignments);
+                            alert('Données importées avec succès !');
+                        } catch (error) {
+                            alert('Erreur lors de l\'importation des données');
+                        }
+                    };
+                    reader.readAsText(file);
+                }
+            };
+
+            const VolunteerModal = ({ volunteer, onSave, onClose }) => {
+                const [formData, setFormData] = useState(volunteer || {
+                    nom: '', prenom: '', telephone: '', email: ''
+                });
+
+                return (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                        <div className="bg-white rounded-lg p-6 max-w-md w-full">
+                            <h3 className="text-xl font-bold mb-4">
+                                {volunteer ? 'Modifier' : 'Ajouter'} un bénévole
+                            </h3>
+                            <div className="space-y-3">
+                                <input
+                                    type="text"
+                                    placeholder="Nom"
+                                    className="w-full p-2 border rounded"
+                                    value={formData.nom}
+                                    onChange={e => setFormData({...formData, nom: e.target.value})}
+                                />
+                                <input
+                                    type="text"
+                                    placeholder="Prénom"
+                                    className="w-full p-2 border rounded"
+                                    value={formData.prenom}
+                                    onChange={e => setFormData({...formData, prenom: e.target.value})}
+                                />
+                                <input
+                                    type="tel"
+                                    placeholder="Téléphone"
+                                    className="w-full p-2 border rounded"
+                                    value={formData.telephone}
+                                    onChange={e => setFormData({...formData, telephone: e.target.value})}
+                                />
+                                <input
+                                    type="email"
+                                    placeholder="Email"
+                                    className="w-full p-2 border rounded"
+                                    value={formData.email}
+                                    onChange={e => setFormData({...formData, email: e.target.value})}
+                                />
+                            </div>
+                            <div className="flex gap-2 mt-4">
+                                <button
+                                    onClick={() => onSave(formData)}
+                                    className="flex-1 bg-blue-500 text-white p-2 rounded hover:bg-blue-600"
+                                >
+                                    Enregistrer
+                                </button>
+                                <button
+                                    onClick={onClose}
+                                    className="flex-1 bg-gray-300 p-2 rounded hover:bg-gray-400"
+                                >
+                                    Annuler
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const PostModal = ({ post, onSave, onClose }) => {
+                const [formData, setFormData] = useState(post || {
+                    nom: '', description: '', couleur: '#3B82F6'
+                });
+
+                return (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+                        <div className="bg-white rounded-lg p-6 max-w-md w-full">
+                            <h3 className="text-xl font-bold mb-4">
+                                {post ? 'Modifier' : 'Ajouter'} un poste
+                            </h3>
+                            <div className="space-y-3">
+                                <input
+                                    type="text"
+                                    placeholder="Nom du poste"
+                                    className="w-full p-2 border rounded"
+                                    value={formData.nom}
+                                    onChange={e => setFormData({...formData, nom: e.target.value})}
+                                />
+                                <textarea
+                                    placeholder="Description du rôle"
+                                    className="w-full p-2 border rounded h-24"
+                                    value={formData.description}
+                                    onChange={e => setFormData({...formData, description: e.target.value})}
+                                />
+                                <div className="flex items-center gap-2">
+                                    <label className="font-medium">Couleur :</label>
+                                    <input
+                                        type="color"
+                                        className="w-16 h-10 border rounded cursor-pointer"
+                                        value={formData.couleur}
+                                        onChange={e => setFormData({...formData, couleur: e.target.value})}
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex gap-2 mt-4">
+                                <button
+                                    onClick={() => onSave(formData)}
+                                    className="flex-1 bg-blue-500 text-white p-2 rounded hover:bg-blue-600"
+                                >
+                                    Enregistrer
+                                </button>
+                                <button
+                                    onClick={onClose}
+                                    className="flex-1 bg-gray-300 p-2 rounded hover:bg-gray-400"
+                                >
+                                    Annuler
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                );
+            };
+
+            const PostInfoModal = ({ post, onClose }) => {
+                if (!post) return null;
+                
+                return (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50" onClick={onClose}>
+                        <div className="bg-white rounded-lg p-6 max-w-md w-full" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center gap-3 mb-4">
+                                <div
+                                    className="w-8 h-8 rounded"
+                                    style={{ backgroundColor: post.couleur }}
+                                />
+                                <h3 className="text-2xl font-bold">{post.nom}</h3>
+                            </div>
+                            <div className="mb-6">
+                                <h4 className="font-semibold text-gray-700 mb-2">Description du rôle :</h4>
+                                <p className="text-gray-600 whitespace-pre-wrap">{post.description || "Aucune description disponible"}</p>
+                            </div>
+                            <button
+                                onClick={onClose}
+                                className="w-full bg-blue-500 text-white p-2 rounded hover:bg-blue-600"
+                            >
+                                Fermer
+                            </button>
+                        </div>
+                    </div>
+                );
+            };
+
+            if (loading) {
+                return (
+                    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                        <div className="text-center">
+                            <div className="text-4xl mb-4">⏳</div>
+                            <div className="text-xl text-gray-600">Chargement...</div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (!isAdmin && view === 'admin') {
+                return (
+                    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+                        <div className="bg-white rounded-lg shadow-xl p-8 max-w-md w-full">
+                            <div className="flex items-center justify-center mb-6">
+                                <span className="text-6xl">🔒</span>
+                            </div>
+                            <h2 className="text-2xl font-bold text-center mb-6">Administration</h2>
+                            <input
+                                type="password"
+                                placeholder="Mot de passe"
+                                className="w-full p-3 border rounded mb-4"
+                                value={password}
+                                onChange={e => setPassword(e.target.value)}
+                                onKeyPress={e => e.key === 'Enter' && handleLogin()}
+                            />
+                            <button
+                                onClick={handleLogin}
+                                className="w-full bg-blue-500 text-white p-3 rounded hover:bg-blue-600 font-medium"
+                            >
+                                Se connecter
+                            </button>
+                            <button
+                                onClick={() => setView('home')}
+                                className="w-full mt-2 text-gray-600 hover:text-gray-800"
+                            >
+                                Retour
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+
+            const Navigation = () => (
+                <div className="bg-white shadow-md mb-6">
+                    <div className="container mx-auto px-4 py-4">
+                        <div className="flex flex-wrap items-center justify-between gap-4">
+                            <h1 className="text-2xl font-bold text-blue-600 flex items-center gap-2">
+                                <span className="text-3xl">📅</span>
+                                Planning Bénévoles
+                            </h1>
+                            <div className="flex flex-wrap gap-2">
+                                <button
+                                    onClick={() => setView('home')}
+                                    className={`px-4 py-2 rounded ${view === 'home' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+                                >
+                                    Accueil
+                                </button>
+                                <button
+                                    onClick={() => setView('byPost')}
+                                    className={`px-4 py-2 rounded ${view === 'byPost' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+                                >
+                                    Par poste
+                                </button>
+                                <button
+                                    onClick={() => setView('byVolunteer')}
+                                    className={`px-4 py-2 rounded ${view === 'byVolunteer' ? 'bg-blue-500 text-white' : 'bg-gray-200'}`}
+                                >
+                                    Par bénévole
+                                </button>
+                                {isAdmin ? (
+                                    <>
+                                        <button
+                                            onClick={() => setView('admin')}
+                                            className={`px-4 py-2 rounded ${view === 'admin' || view === 'volunteers' || view === 'posts' ? 'bg-green-500 text-white' : 'bg-green-100'}`}
+                                        >
+                                            Admin
+                                        </button>
+                                        <button
+                                            onClick={handleLogout}
+                                            className="px-4 py-2 rounded bg-red-100 hover:bg-red-200"
+                                        >
+                                            Déconnexion
+                                        </button>
+                                    </>
+                                ) : (
+                                    <button
+                                        onClick={() => setView('admin')}
+                                        className="px-4 py-2 rounded bg-gray-200 hover:bg-gray-300"
+                                    >
+                                        Admin
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+
+            if (view === 'home') {
+                return (
+                    <div className="min-h-screen bg-gray-50">
+                        <Navigation />
+                        <div className="container mx-auto px-4 py-8">
+                            <div className="max-w-4xl mx-auto">
+                                <div className="bg-white rounded-lg shadow-lg p-8">
+                                    <h2 className="text-3xl font-bold mb-6 text-center">Bienvenue sur le planning des bénévoles</h2>
+                                    <div className="grid md:grid-cols-2 gap-6 mb-8">
+                                        <div className="bg-blue-50 p-6 rounded-lg">
+                                            <span className="text-4xl mb-3 block">👥</span>
+                                            <h3 className="text-xl font-bold mb-2">Consulter par bénévole</h3>
+                                            <p className="text-gray-700 mb-4">
+                                                Trouvez rapidement le planning d'un bénévole spécifique
+                                            </p>
+                                            <button
+                                                onClick={() => setView('byVolunteer')}
+                                                className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                                            >
+                                                Accéder
+                                            </button>
+                                        </div>
+                                        <div className="bg-green-50 p-6 rounded-lg">
+                                            <span className="text-4xl mb-3 block">💼</span>
+                                            <h3 className="text-xl font-bold mb-2">Consulter par poste</h3>
+                                            <p className="text-gray-700 mb-4">
+                                                Vue d'ensemble de tous les postes et leurs affectations
+                                            </p>
+                                            <button
+                                                onClick={() => setView('byPost')}
+                                                className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                                            >
+                                                Accéder
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="bg-gray-100 p-6 rounded-lg">
+                                        <h3 className="text-lg font-bold mb-3">Statistiques</h3>
+                                        <div className="grid grid-cols-3 gap-4 text-center">
+                                            <div>
+                                                <div className="text-3xl font-bold text-blue-600">{volunteers.length}</div>
+                                                <div className="text-sm text-gray-600">Bénévoles</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-3xl font-bold text-green-600">{posts.length}</div>
+                                                <div className="text-sm text-gray-600">Postes</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-3xl font-bold text-purple-600">{assignments.length}</div>
+                                                <div className="text-sm text-gray-600">Affectations</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                );
+            }
+
+            if (view === 'byPost') {
+                return (
+                    <div className="min-h-screen bg-gray-50">
+                        <Navigation />
+                        <div className="container mx-auto px-4 py-8">
+                            <h2 className="text-2xl font-bold mb-6">Planning par poste</h2>
+                            {posts.length === 0 ? (
+                                <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+                                    Aucun poste défini pour le moment
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {posts.map(post => {
+                                        const isExpanded = expandedPostId === post.id;
+                                        const postAssignments = assignments.filter(a => a.postId === post.id);
+                                        const assignedCount = postAssignments.length;
+                                        
+                                        return (
+                                            <div key={post.id} className="bg-white rounded-lg shadow overflow-hidden">
+                                                <div 
+                                                    className="p-4 text-white font-bold text-lg flex items-center justify-between cursor-pointer hover:opacity-90 transition-opacity"
+                                                    style={{ backgroundColor: post.couleur }}
+                                                    onClick={() => setExpandedPostId(isExpanded ? null : post.id)}
+                                                >
+                                                    <div className="flex items-center gap-3">
+                                                        <span>{post.nom}</span>
+                                                        <span className="text-sm font-normal bg-white bg-opacity-20 px-3 py-1 rounded-full">
+                                                            {assignedCount} affectation{assignedCount > 1 ? 's' : ''}
+                                                        </span>
+                                                    </div>
+                                                    <span className="text-2xl">
+                                                        {isExpanded ? '▼' : '▶'}
+                                                    </span>
+                                                </div>
+                                                {isExpanded && (
+                                                    <div className="p-4">
+                                                        <p className="text-gray-600 mb-4 italic">{post.description}</p>
+                                                        <div className="overflow-x-auto">
+                                                            <table className="w-full">
+                                                                <thead>
+                                                                    <tr className="bg-gray-100">
+                                                                        <th className="p-2 text-left">Horaire</th>
+                                                                        <th className="p-2 text-left">Bénévoles affectés</th>
+                                                                    </tr>
+                                                                </thead>
+                                                                <tbody>
+                                                                    {HOURS.map(hour => {
+                                                                        const hourAssignments = getAssignments(post.id, hour);
+                                                                        return (
+                                                                            <tr key={hour} className="border-t">
+                                                                                <td className="p-2 font-medium">{hour}h - {hour+1}h</td>
+                                                                                <td className="p-2">
+                                                                                    {hourAssignments.length > 0 ? (
+                                                                                        <div className="flex flex-wrap gap-2">
+                                                                                            {hourAssignments.map(assignment => {
+                                                                                                const volunteer = volunteers.find(v => v.id === assignment.volunteerId);
+                                                                                                return volunteer ? (
+                                                                                                    <span 
+                                                                                                        key={assignment.id}
+                                                                                                        className="bg-blue-100 px-3 py-1 rounded-full text-sm"
+                                                                                                    >
+                                                                                                        {volunteer.prenom} {volunteer.nom}
+                                                                                                    </span>
+                                                                                                ) : null;
+                                                                                            })}
+                                                                                        </div>
+                                                                                    ) : (
+                                                                                        <span className="text-gray-400 italic">Non affecté</span>
+                                                                                    )}
+                                                                                </td>
+                                                                            </tr>
+                                                                        );
+                                                                    })}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                );
+            }
+
+            if (view === 'byVolunteer') {
+                const filteredVolunteers = volunteers.filter(v =>
+                    `${v.prenom} ${v.nom}`.toLowerCase().includes(searchTerm.toLowerCase())
+                );
+
+                return (
+                    <div className="min-h-screen bg-gray-50">
+                        <Navigation />
+                        <div className="container mx-auto px-4 py-8">
+                            <h2 className="text-2xl font-bold mb-6">Planning par bénévole</h2>
+                            <div className="mb-6">
+                                <div className="relative max-w-md">
+                                    <span className="absolute left-3 top-3 text-gray-400">🔍</span>
+                                    <input
+                                        type="text"
+                                        placeholder="Rechercher un bénévole..."
+                                        className="w-full pl-10 pr-4 py-2 border rounded-lg"
+                                        value={searchTerm}
+                                        onChange={e => setSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                            </div>
+                            {filteredVolunteers.length === 0 ? (
+                                <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+                                    {volunteers.length === 0 ? 'Aucun bénévole enregistré' : 'Aucun résultat'}
+                                </div>
+                            ) : (
+                                <div className="space-y-4">
+                                    {filteredVolunteers.map(volunteer => {
+                                        const volunteerAssignments = getAssignmentsByVolunteer(volunteer.id);
+                                        const mergedSlots = mergeConsecutiveSlots(volunteerAssignments);
+                                        
+                                        return (
+                                            <div key={volunteer.id} className="bg-white rounded-lg shadow p-6">
+                                                <div className="flex items-start justify-between mb-4">
+                                                    <div>
+                                                        <h3 className="text-xl font-bold">
+                                                            {volunteer.prenom} {volunteer.nom}
+                                                        </h3>
+                                                        <p className="text-gray-600">{volunteer.telephone}</p>
+                                                        <p className="text-gray-600">{volunteer.email}</p>
+                                                    </div>
+                                                    <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">
+                                                        {volunteerAssignments.length} créneau{volunteerAssignments.length > 1 ? 'x' : ''}
+                                                    </span>
+                                                </div>
+                                                {mergedSlots.length > 0 ? (
+                                                    <div className="space-y-2">
+                                                        {mergedSlots.map((slot, index) => {
+                                                            const post = posts.find(p => p.id === slot.postId);
+                                                            return post ? (
+                                                                <div
+                                                                    key={index}
+                                                                    className="flex items-center gap-3 p-3 rounded"
+                                                                    style={{ backgroundColor: `${post.couleur}20` }}
+                                                                >
+                                                                    <span className="font-medium">
+                                                                        {slot.startHour}h - {slot.endHour}h
+                                                                    </span>
+                                                                    <span className="font-bold" style={{ color: post.couleur }}>
+                                                                        {post.nom}
+                                                                    </span>
+                                                                </div>
+                                                            ) : null;
+                                                        })}
+                                                    </div>
+                                                ) : (
+                                                    <p className="text-gray-400 italic">Aucune affectation</p>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                );
+            }
+
+            if (view === 'admin' && isAdmin) {
+                return (
+                    <div className="min-h-screen bg-gray-50">
+                        <Navigation />
+                        <div className="container mx-auto px-4 py-8">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-2xl font-bold">Administration</h2>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={exportData}
+                                        className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center gap-2"
+                                    >
+                                        ⬇️ Exporter
+                                    </button>
+                                    <label className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 cursor-pointer flex items-center gap-2">
+                                        ⬆️ Importer
+                                        <input
+                                            type="file"
+                                            accept=".json"
+                                            onChange={importData}
+                                            className="hidden"
+                                        />
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div className="bg-white rounded-lg shadow mb-6">
+                                <div className="flex border-b">
+                                    <button
+                                        className="flex-1 px-6 py-3 font-medium border-b-2 border-blue-500 text-blue-500"
+                                    >
+                                        📅 Planning interactif
+                                    </button>
+                                    <button
+                                        onClick={() => setView('volunteers')}
+                                        className="flex-1 px-6 py-3 font-medium text-gray-600 hover:bg-gray-50"
+                                    >
+                                        👥 Bénévoles
+                                    </button>
+                                    <button
+                                        onClick={() => setView('posts')}
+                                        className="flex-1 px-6 py-3 font-medium text-gray-600 hover:bg-gray-50"
+                                    >
+                                        💼 Postes
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="bg-white rounded-lg shadow p-6">
+                                <h3 className="text-xl font-bold mb-4">Planning interactif - Affectation rapide</h3>
+                                
+                                {posts.length === 0 || volunteers.length === 0 ? (
+                                    <div className="text-center py-12 text-gray-500">
+                                        <p className="mb-2">
+                                            {posts.length === 0 && volunteers.length === 0 
+                                                ? 'Veuillez d\'abord ajouter des postes et des bénévoles'
+                                                : posts.length === 0 
+                                                ? 'Veuillez d\'abord ajouter des postes'
+                                                : 'Veuillez d\'abord ajouter des bénévoles'}
+                                        </p>
+                                        <div className="flex gap-4 justify-center mt-4">
+                                            {posts.length === 0 && (
+                                                <button
+                                                    onClick={() => setView('posts')}
+                                                    className="bg-green-500 text-white px-6 py-2 rounded hover:bg-green-600"
+                                                >
+                                                    Ajouter des postes
+                                                </button>
+                                            )}
+                                            {volunteers.length === 0 && (
+                                                <button
+                                                    onClick={() => setView('volunteers')}
+                                                    className="bg-blue-500 text-white px-6 py-2 rounded hover:bg-blue-600"
+                                                >
+                                                    Ajouter des bénévoles
+                                                </button>
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full border-collapse">
+                                            <thead>
+                                                <tr>
+                                                    <th className="sticky left-0 bg-gray-100 border p-2 font-bold min-w-[150px]">
+                                                        Poste / Horaire
+                                                    </th>
+                                                    {HOURS.map(hour => (
+                                                        <th key={hour} className="bg-gray-100 border p-2 text-center min-w-[140px]">
+                                                            {hour}h-{hour+1}h
+                                                        </th>
+                                                    ))}
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {posts.map(post => (
+                                                    <tr key={post.id}>
+                                                        <td 
+                                                            className="sticky left-0 border p-2 font-bold text-white"
+                                                            style={{ backgroundColor: post.couleur }}
+                                                        >
+                                                            {post.nom}
+                                                        </td>
+                                                        {HOURS.map(hour => {
+                                                            const hourAssignments = getAssignments(post.id, hour);
+                                                            const assignedVolunteerIds = hourAssignments.map(a => a.volunteerId);
+                                                            const availableVolunteers = volunteers.filter(v => !assignedVolunteerIds.includes(v.id));
+                                                            
+                                                            return (
+                                                                <td key={hour} className="border p-1">
+                                                                    <div className="space-y-1">
+                                                                        {hourAssignments.map(assignment => {
+                                                                            const volunteer = volunteers.find(v => v.id === assignment.volunteerId);
+                                                                            return volunteer ? (
+                                                                                <div 
+                                                                                    key={assignment.id}
+                                                                                    className="flex items-center justify-between p-1 rounded text-xs"
+                                                                                    style={{ backgroundColor: `${post.couleur}20` }}
+                                                                                >
+                                                                                    <span className="truncate">{volunteer.prenom} {volunteer.nom}</span>
+                                                                                    <button
+                                                                                        onClick={() => removeAssignment(assignment.id)}
+                                                                                        className="ml-1 text-red-500 hover:text-red-700"
+                                                                                    >
+                                                                                        ❌
+                                                                                    </button>
+                                                                                </div>
+                                                                            ) : null;
+                                                                        })}
+                                                                        <select
+                                                                            value=""
+                                                                            onChange={(e) => {
+                                                                                if (e.target.value) {
+                                                                                    addAssignment(post.id, hour, parseInt(e.target.value));
+                                                                                    e.target.value = "";
+                                                                                }
+                                                                            }}
+                                                                            className="w-full p-1 text-xs border rounded bg-white cursor-pointer"
+                                                                        >
+                                                                            <option value="">+ Ajouter</option>
+                                                                            {availableVolunteers.map(v => (
+                                                                                <option key={v.id} value={v.id}>
+                                                                                    {v.prenom} {v.nom}
+                                                                                </option>
+                                                                            ))}
+                                                                        </select>
+                                                                    </div>
+                                                                </td>
+                                                            );
+                                                        })}
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+
+                                <div className="mt-4 p-4 bg-blue-50 rounded-lg">
+                                    <p className="text-sm text-gray-700">
+                                        💡 <strong>Astuce :</strong> Vous pouvez affecter plusieurs bénévoles sur le même poste au même horaire. 
+                                        Sélectionnez "+ Ajouter" dans une case pour ajouter un bénévole, cliquez sur ❌ pour le retirer. 
+                                        Le système détecte automatiquement les conflits horaires.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {editingVolunteer && (
+                            <VolunteerModal
+                                volunteer={editingVolunteer.id ? editingVolunteer : null}
+                                onSave={saveVolunteer}
+                                onClose={() => setEditingVolunteer(null)}
+                            />
+                        )}
+                        {editingPost && (
+                            <PostModal
+                                post={editingPost.id ? editingPost : null}
+                                onSave={savePost}
+                                onClose={() => setEditingPost(null)}
+                            />
+                        )}
+                    </div>
+                );
+            }
+
+            if (view === 'volunteers' && isAdmin) {
+                return (
+                    <div className="min-h-screen bg-gray-50">
+                        <Navigation />
+                        <div className="container mx-auto px-4 py-8">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-2xl font-bold">Administration</h2>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={exportData}
+                                        className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center gap-2"
+                                    >
+                                        <i data-lucide="download" style={{width: '16px', height: '16px'}}></i>
+                                        Exporter
+                                    </button>
+                                    <label className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 cursor-pointer flex items-center gap-2">
+                                        <i data-lucide="upload" style={{width: '16px', height: '16px'}}></i>
+                                        Importer
+                                        <input
+                                            type="file"
+                                            accept=".json"
+                                            onChange={importData}
+                                            className="hidden"
+                                        />
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div className="bg-white rounded-lg shadow mb-6">
+                                <div className="flex border-b">
+                                    <button
+                                        onClick={() => setView('admin')}
+                                        className="flex-1 px-6 py-3 font-medium text-gray-600 hover:bg-gray-50"
+                                    >
+                                        📅 Planning interactif
+                                    </button>
+                                    <button
+                                        className="flex-1 px-6 py-3 font-medium border-b-2 border-blue-500 text-blue-500"
+                                    >
+                                        👥 Bénévoles
+                                    </button>
+                                    <button
+                                        onClick={() => setView('posts')}
+                                        className="flex-1 px-6 py-3 font-medium text-gray-600 hover:bg-gray-50"
+                                    >
+                                        💼 Postes
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="bg-white rounded-lg shadow">
+                                <div className="p-4 border-b flex justify-between items-center">
+                                    <h3 className="text-xl font-bold flex items-center gap-2">
+                                        <span className="text-2xl">👥</span>
+                                        Bénévoles ({volunteers.length})
+                                    </h3>
+                                    <button
+                                        onClick={() => setEditingVolunteer({})}
+                                        className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                                    >
+                                        ➕ Ajouter
+                                    </button>
+                                </div>
+                                <div className="p-4">
+                                    {volunteers.length === 0 ? (
+                                        <p className="text-gray-500 text-center py-8">Aucun bénévole enregistré</p>
+                                    ) : (
+                                        <div className="overflow-x-auto">
+                                            <table className="w-full">
+                                                <thead className="bg-gray-50">
+                                                    <tr>
+                                                        <th className="p-2 text-left">Nom</th>
+                                                        <th className="p-2 text-left">Prénom</th>
+                                                        <th className="p-2 text-left">Téléphone</th>
+                                                        <th className="p-2 text-left">Email</th>
+                                                        <th className="p-2 text-left">Actions</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    {volunteers.map(v => (
+                                                        <tr key={v.id} className="border-t">
+                                                            <td className="p-2">{v.nom}</td>
+                                                            <td className="p-2">{v.prenom}</td>
+                                                            <td className="p-2">{v.telephone}</td>
+                                                            <td className="p-2">{v.email}</td>
+                                                            <td className="p-2">
+                                                                <button
+                                                                    onClick={() => setEditingVolunteer(v)}
+                                                                    className="text-blue-500 hover:text-blue-700 mr-2"
+                                                                >
+                                                                    ✏️
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => deleteVolunteer(v.id)}
+                                                                    className="text-red-500 hover:text-red-700"
+                                                                >
+                                                                    🗑️
+                                                                </button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {editingVolunteer && (
+                            <VolunteerModal
+                                volunteer={editingVolunteer.id ? editingVolunteer : null}
+                                onSave={saveVolunteer}
+                                onClose={() => setEditingVolunteer(null)}
+                            />
+                        )}
+                        {editingPost && (
+                            <PostModal
+                                post={editingPost.id ? editingPost.id : null}
+                                onSave={savePost}
+                                onClose={() => setEditingPost(null)}
+                            />
+                        )}
+                    </div>
+                );
+            }
+
+            if (view === 'posts' && isAdmin) {
+                return (
+                    <div className="min-h-screen bg-gray-50">
+                        <Navigation />
+                        <div className="container mx-auto px-4 py-8">
+                            <div className="flex justify-between items-center mb-6">
+                                <h2 className="text-2xl font-bold">Administration</h2>
+                                <div className="flex gap-2">
+                                    <button
+                                        onClick={exportData}
+                                        className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 flex items-center gap-2"
+                                    >
+                                        <i data-lucide="download" style={{width: '16px', height: '16px'}}></i>
+                                        Exporter
+                                    </button>
+                                    <label className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 cursor-pointer flex items-center gap-2">
+                                        <i data-lucide="upload" style={{width: '16px', height: '16px'}}></i>
+                                        Importer
+                                        <input
+                                            type="file"
+                                            accept=".json"
+                                            onChange={importData}
+                                            className="hidden"
+                                        />
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div className="bg-white rounded-lg shadow mb-6">
+                                <div className="flex border-b">
+                                    <button
+                                        onClick={() => setView('admin')}
+                                        className="flex-1 px-6 py-3 font-medium text-gray-600 hover:bg-gray-50"
+                                    >
+                                        📅 Planning interactif
+                                    </button>
+                                    <button
+                                        onClick={() => setView('volunteers')}
+                                        className="flex-1 px-6 py-3 font-medium text-gray-600 hover:bg-gray-50"
+                                    >
+                                        👥 Bénévoles
+                                    </button>
+                                    <button
+                                        className="flex-1 px-6 py-3 font-medium border-b-2 border-blue-500 text-blue-500"
+                                    >
+                                        💼 Postes
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="bg-white rounded-lg shadow">
+                                <div className="p-4 border-b flex justify-between items-center">
+                                    <h3 className="text-xl font-bold flex items-center gap-2">
+                                        <span className="text-2xl">💼</span>
+                                        Postes ({posts.length})
+                                    </h3>
+                                    <button
+                                        onClick={() => setEditingPost({})}
+                                        className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                                    >
+                                        ➕ Ajouter
+                                    </button>
+                                </div>
+                                <div className="p-4">
+                                    {posts.length === 0 ? (
+                                        <p className="text-gray-500 text-center py-8">Aucun poste défini</p>
+                                    ) : (
+                                        <div className="grid md:grid-cols-2 gap-4">
+                                            {posts.map(p => (
+                                                <div key={p.id} className="border rounded-lg p-4">
+                                                    <div className="flex items-start justify-between mb-2">
+                                                        <div className="flex items-center gap-2">
+                                                            <div
+                                                                className="w-6 h-6 rounded"
+                                                                style={{ backgroundColor: p.couleur }}
+                                                            />
+                                                            <h4 className="font-bold text-lg">{p.nom}</h4>
+                                                        </div>
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                onClick={() => setEditingPost(p)}
+                                                                className="text-blue-500 hover:text-blue-700"
+                                                            >
+                                                                ✏️
+                                                            </button>
+                                                            <button
+                                                                onClick={() => deletePost(p.id)}
+                                                                className="text-red-500 hover:text-red-700"
+                                                            >
+                                                                🗑️
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                    <p className="text-gray-600 text-sm">{p.description}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+
+                        {editingVolunteer && (
+                            <VolunteerModal
+                                volunteer={editingVolunteer.id ? editingVolunteer : null}
+                                onSave={saveVolunteer}
+                                onClose={() => setEditingVolunteer(null)}
+                            />
+                        )}
+                        {editingPost && (
+                            <PostModal
+                                post={editingPost.id ? editingPost : null}
+                                onSave={savePost}
+                                onClose={() => setEditingPost(null)}
+                            />
+                        )}
+                    </div>
+                );
+            }
+
+            return null;
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
