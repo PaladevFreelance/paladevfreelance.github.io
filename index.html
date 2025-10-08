@@ -884,21 +884,25 @@
                     `${v.prenom} ${v.nom}`.toLowerCase().includes(searchTerm.toLowerCase())
                 );
 
+                // Mode impression : afficher uniquement le planning du bénévole sélectionné
                 if (printingVolunteerId) {
                     const volunteer = volunteers.find(v => v.id === printingVolunteerId);
-                    if (!volunteer) return null;
+                    if (!volunteer) {
+                        setPrintingVolunteerId(null);
+                        return null;
+                    }
                     
                     const volunteerAssignments = getAssignmentsByVolunteer(volunteer.id);
                     const totalSlots = volunteerAssignments.length;
                     
                     return (
-                        <div className="min-h-screen bg-white p-8">
+                        <div className="min-h-screen bg-white p-4">
                             <div className="max-w-4xl mx-auto">
                                 <div className="mb-6 pb-4 border-b-2">
-                                    <h1 className="text-3xl font-bold mb-2">Planning Bénévole</h1>
-                                    <h2 className="text-2xl text-blue-600">{volunteer.prenom} {volunteer.nom}</h2>
-                                    <p className="text-gray-600">{volunteer.telephone}</p>
-                                    <p className="text-gray-600">{volunteer.email}</p>
+                                    <h1 className="text-2xl font-bold mb-2">Planning Bénévole</h1>
+                                    <h2 className="text-xl text-blue-600">{volunteer.prenom} {volunteer.nom}</h2>
+                                    <p className="text-gray-600 text-sm">{volunteer.telephone}</p>
+                                    <p className="text-gray-600 text-sm">{volunteer.email}</p>
                                     <p className="text-sm text-gray-500 mt-2">Total : {totalSlots} créneau{totalSlots > 1 ? 'x' : ''}</p>
                                 </div>
                                 
@@ -909,9 +913,9 @@
                                     const mergedSlots = mergeConsecutiveSlots(dayAssignments);
                                     
                                     return (
-                                        <div key={day.id} className="mb-6">
-                                            <div className="bg-blue-100 p-3 mb-3">
-                                                <h3 className="font-bold text-blue-800 text-xl">{day.nom}</h3>
+                                        <div key={day.id} className="mb-6 break-inside-avoid">
+                                            <div className="bg-blue-100 p-3 mb-3 rounded">
+                                                <h3 className="font-bold text-blue-800 text-lg">{day.nom}</h3>
                                                 <span className="text-sm text-blue-700">{dayAssignments.length} créneau{dayAssignments.length > 1 ? 'x' : ''}</span>
                                             </div>
                                             
@@ -919,12 +923,12 @@
                                                 {mergedSlots.map((slot, index) => {
                                                     const post = posts.find(p => p.id === slot.postId);
                                                     return post ? (
-                                                        <div key={index} className="border-l-4 pl-3 py-2" style={{ borderColor: post.couleur }}>
-                                                            <div className="flex items-center gap-3 mb-1">
+                                                        <div key={index} className="border-l-4 pl-3 py-2 break-inside-avoid" style={{ borderColor: post.couleur }}>
+                                                            <div className="flex items-center gap-2 mb-1 flex-wrap">
                                                                 <span className="font-bold text-gray-700">
                                                                     {slot.startHour}h - {slot.endHour}h
                                                                 </span>
-                                                                <span className="font-bold text-lg" style={{ color: post.couleur }}>
+                                                                <span className="font-bold" style={{ color: post.couleur }}>
                                                                     {post.nom}
                                                                 </span>
                                                             </div>
@@ -956,6 +960,7 @@
                     );
                 }
 
+                // Mode normal : afficher la liste des bénévoles
                 return (
                     <div className="min-h-screen bg-gray-50">
                         <Navigation />
