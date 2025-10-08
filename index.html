@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Planning Bénévoles</title>
+    <title>Planning Bénévoles Castagnades</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -12,23 +12,14 @@
     <script src="./config.js"></script>
     <style>
         @media print {
-            body * {
-                visibility: hidden;
-            }
-            .printable-area, .printable-area * {
-                visibility: visible;
-            }
-            .printable-area {
-                position: absolute;
-                left: 0;
-                top: 0;
-                width: 100%;
-            }
             .no-print {
                 display: none !important;
             }
             @page {
                 margin: 1cm;
+            }
+            body {
+                background: white;
             }
         }
     </style>
@@ -893,12 +884,84 @@
                     `${v.prenom} ${v.nom}`.toLowerCase().includes(searchTerm.toLowerCase())
                 );
 
+                if (printingVolunteerId) {
+                    const volunteer = volunteers.find(v => v.id === printingVolunteerId);
+                    if (!volunteer) return null;
+                    
+                    const volunteerAssignments = getAssignmentsByVolunteer(volunteer.id);
+                    const totalSlots = volunteerAssignments.length;
+                    
+                    return (
+                        <div className="min-h-screen bg-white p-8">
+                            <div className="max-w-4xl mx-auto">
+                                <div className="mb-6 pb-4 border-b-2">
+                                    <h1 className="text-3xl font-bold mb-2">Planning Bénévole</h1>
+                                    <h2 className="text-2xl text-blue-600">{volunteer.prenom} {volunteer.nom}</h2>
+                                    <p className="text-gray-600">{volunteer.telephone}</p>
+                                    <p className="text-gray-600">{volunteer.email}</p>
+                                    <p className="text-sm text-gray-500 mt-2">Total : {totalSlots} créneau{totalSlots > 1 ? 'x' : ''}</p>
+                                </div>
+                                
+                                {days.map(day => {
+                                    const dayAssignments = getAssignmentsByVolunteerAndDay(volunteer.id, day.id);
+                                    if (dayAssignments.length === 0) return null;
+                                    
+                                    const mergedSlots = mergeConsecutiveSlots(dayAssignments);
+                                    
+                                    return (
+                                        <div key={day.id} className="mb-6">
+                                            <div className="bg-blue-100 p-3 mb-3">
+                                                <h3 className="font-bold text-blue-800 text-xl">{day.nom}</h3>
+                                                <span className="text-sm text-blue-700">{dayAssignments.length} créneau{dayAssignments.length > 1 ? 'x' : ''}</span>
+                                            </div>
+                                            
+                                            <div className="space-y-3 ml-2">
+                                                {mergedSlots.map((slot, index) => {
+                                                    const post = posts.find(p => p.id === slot.postId);
+                                                    return post ? (
+                                                        <div key={index} className="border-l-4 pl-3 py-2" style={{ borderColor: post.couleur }}>
+                                                            <div className="flex items-center gap-3 mb-1">
+                                                                <span className="font-bold text-gray-700">
+                                                                    {slot.startHour}h - {slot.endHour}h
+                                                                </span>
+                                                                <span className="font-bold text-lg" style={{ color: post.couleur }}>
+                                                                    {post.nom}
+                                                                </span>
+                                                            </div>
+                                                            {post.description && (
+                                                                <p className="text-sm text-gray-600 italic mb-1">
+                                                                    {post.description}
+                                                                </p>
+                                                            )}
+                                                            {post.referent && (
+                                                                <p className="text-xs text-gray-500">
+                                                                    <strong>Référent :</strong> {post.referent}
+                                                                </p>
+                                                            )}
+                                                        </div>
+                                                    ) : null;
+                                                })}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                
+                                {days.every(day => getAssignmentsByVolunteerAndDay(volunteer.id, day.id).length === 0) && (
+                                    <div className="text-center text-gray-500 py-8">
+                                        <p>Aucune affectation</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    );
+                }
+
                 return (
                     <div className="min-h-screen bg-gray-50">
                         <Navigation />
                         <div className="container mx-auto px-4 py-8">
-                            <h2 className="text-2xl font-bold mb-6 no-print">Planning par bénévole</h2>
-                            <div className="mb-6 no-print">
+                            <h2 className="text-2xl font-bold mb-6">Planning par bénévole</h2>
+                            <div className="mb-6">
                                 <div className="relative max-w-md">
                                     <span className="absolute left-3 top-3 text-gray-400">🔍</span>
                                     <input
@@ -919,10 +982,9 @@
                                     {filteredVolunteers.map(volunteer => {
                                         const volunteerAssignments = getAssignmentsByVolunteer(volunteer.id);
                                         const totalSlots = volunteerAssignments.length;
-                                        const isPrinting = printingVolunteerId === volunteer.id;
                                         
                                         return (
-                                            <div key={volunteer.id} className={`bg-white rounded-lg shadow ${isPrinting ? 'printable-area' : ''}`}>
+                                            <div key={volunteer.id} className="bg-white rounded-lg shadow">
                                                 <div className="p-6 border-b">
                                                     <div className="flex items-start justify-between">
                                                         <div>
@@ -938,7 +1000,7 @@
                                                             </span>
                                                             <button
                                                                 onClick={() => printVolunteerPlanning(volunteer.id)}
-                                                                className="no-print bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 flex items-center gap-2"
+                                                                className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 flex items-center gap-2"
                                                                 title="Imprimer le planning"
                                                             >
                                                                 🖨️ PDF
@@ -953,13 +1015,13 @@
                                                     
                                                     const mergedSlots = mergeConsecutiveSlots(dayAssignments);
                                                     const dayKey = `${volunteer.id}-${day.id}`;
-                                                    const isDayExpanded = expandedVolunteerDays[dayKey] || isPrinting;
+                                                    const isDayExpanded = expandedVolunteerDays[dayKey];
                                                     
                                                     return (
                                                         <div key={day.id} className="border-b last:border-b-0">
                                                             <div
-                                                                className={`p-4 bg-gradient-to-r from-blue-50 to-blue-100 ${!isPrinting ? 'cursor-pointer hover:from-blue-100 hover:to-blue-150' : ''} transition-all flex items-center justify-between`}
-                                                                onClick={() => !isPrinting && setExpandedVolunteerDays({
+                                                                className="p-4 bg-gradient-to-r from-blue-50 to-blue-100 cursor-pointer hover:from-blue-100 hover:to-blue-150 transition-all flex items-center justify-between"
+                                                                onClick={() => setExpandedVolunteerDays({
                                                                     ...expandedVolunteerDays,
                                                                     [dayKey]: !isDayExpanded
                                                                 })}
@@ -970,11 +1032,9 @@
                                                                         {dayAssignments.length} créneau{dayAssignments.length > 1 ? 'x' : ''}
                                                                     </span>
                                                                 </div>
-                                                                {!isPrinting && (
-                                                                    <span className="text-blue-600 text-xl">
-                                                                        {isDayExpanded ? '▼' : '▶'}
-                                                                    </span>
-                                                                )}
+                                                                <span className="text-blue-600 text-xl">
+                                                                    {isDayExpanded ? '▼' : '▶'}
+                                                                </span>
                                                             </div>
                                                             
                                                             {isDayExpanded && (
