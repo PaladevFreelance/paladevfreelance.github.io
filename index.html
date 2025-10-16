@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Planning Bénévoles Castagnades</title>
+    <title>Planning Bénévoles</title>
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -46,6 +46,9 @@
             const [assignments, setAssignments] = useState([]);
             const [disabledSlots, setDisabledSlots] = useState([]);
             const [searchTerm, setSearchTerm] = useState('');
+            const [postSearchTerm, setPostSearchTerm] = useState('');
+            const [sortVolunteersAlpha, setSortVolunteersAlpha] = useState(false);
+            const [sortPostsAlpha, setSortPostsAlpha] = useState(false);
             const [editingVolunteer, setEditingVolunteer] = useState(null);
             const [editingPost, setEditingPost] = useState(null);
             const [expandedPostId, setExpandedPostId] = useState(null);
@@ -728,21 +731,62 @@
             }
 
             if (view === 'byPost') {
+                const filteredDays = days.map(day => {
+                    let dayPosts = posts.filter(p => p.dayId === day.id);
+                    
+                    if (postSearchTerm) {
+                        dayPosts = dayPosts.filter(p =>
+                            p.nom.toLowerCase().includes(postSearchTerm.toLowerCase())
+                        );
+                    }
+                    
+                    if (sortPostsAlpha) {
+                        dayPosts = dayPosts.sort((a, b) => a.nom.localeCompare(b.nom));
+                    }
+                    
+                    return { ...day, posts: dayPosts };
+                }).filter(day => day.posts.length > 0);
+                
+                const unassignedPosts = posts.filter(p => !p.dayId);
+                
                 return (
                     <div className="min-h-screen bg-gray-50">
                         <Navigation />
                         <div className="container mx-auto px-4 py-8">
                             <h2 className="text-2xl font-bold mb-6">Planning par poste</h2>
+                            
+                            <div className="mb-6 flex gap-4 flex-wrap">
+                                <div className="relative flex-1 max-w-md">
+                                    <span className="absolute left-3 top-3 text-gray-400">🔍</span>
+                                    <input
+                                        type="text"
+                                        placeholder="Rechercher un poste..."
+                                        className="w-full pl-10 pr-4 py-2 border rounded-lg"
+                                        value={postSearchTerm}
+                                        onChange={e => setPostSearchTerm(e.target.value)}
+                                    />
+                                </div>
+                                <button
+                                    onClick={() => setSortPostsAlpha(!sortPostsAlpha)}
+                                    className={`px-4 py-2 rounded-lg font-medium ${sortPostsAlpha ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                                    title="Trier par ordre alphabétique"
+                                >
+                                    {sortPostsAlpha ? '✓ A→Z' : 'A→Z'}
+                                </button>
+                            </div>
+                            
                             {posts.length === 0 ? (
                                 <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
                                     Aucun poste défini pour le moment
                                 </div>
+                            ) : filteredDays.length === 0 && unassignedPosts.length === 0 ? (
+                                <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+                                    Aucun résultat
+                                </div>
                             ) : (
                                 <div className="space-y-4">
-                                    {days.map(day => {
-                                        const dayPosts = posts.filter(p => p.dayId === day.id);
-                                        if (dayPosts.length === 0) return null;
-                                        
+                                    {filteredDays.map(day => {
+                                        const dayPosts = day.posts;
                                         const isDayExpanded = expandedPostDayId === day.id;
                                         const totalAssignments = dayPosts.reduce((sum, post) => {
                                             return sum + assignments.filter(a => a.postId === post.id).length;
@@ -854,7 +898,7 @@
                                         );
                                     })}
                                     
-                                    {posts.some(p => !p.dayId) && (
+                                    {unassignedPosts.length > 0 && (
                                         <div className="bg-white rounded-lg shadow overflow-hidden">
                                             <div className="p-4 bg-gray-400 text-white font-bold text-lg flex items-center gap-3">
                                                 <span className="text-2xl">❓</span>
@@ -862,7 +906,7 @@
                                             </div>
                                             <div className="p-4">
                                                 <div className="space-y-2">
-                                                    {posts.filter(p => !p.dayId).map(post => (
+                                                    {unassignedPosts.map(post => (
                                                         <div key={post.id} className="flex items-center gap-3 p-3 border rounded" style={{ borderLeftColor: post.couleur, borderLeftWidth: '4px' }}>
                                                             <span className="font-bold" style={{ color: post.couleur }}>{post.nom}</span>
                                                             <span className="text-sm text-gray-500 italic">Veuillez assigner un jour à ce poste</span>
@@ -880,9 +924,15 @@
             }
 
             if (view === 'byVolunteer') {
-                const filteredVolunteers = volunteers.filter(v =>
+                let filteredVolunteers = volunteers.filter(v =>
                     `${v.prenom} ${v.nom}`.toLowerCase().includes(searchTerm.toLowerCase())
                 );
+                
+                if (sortVolunteersAlpha) {
+                    filteredVolunteers = filteredVolunteers.sort((a, b) => 
+                        `${a.nom} ${a.prenom}`.localeCompare(`${b.nom} ${b.prenom}`)
+                    );
+                }
 
                 // Mode impression : afficher uniquement le planning du bénévole sélectionné
                 if (printingVolunteerId) {
@@ -966,8 +1016,8 @@
                         <Navigation />
                         <div className="container mx-auto px-4 py-8">
                             <h2 className="text-2xl font-bold mb-6">Planning par bénévole</h2>
-                            <div className="mb-6">
-                                <div className="relative max-w-md">
+                            <div className="mb-6 flex gap-4 flex-wrap">
+                                <div className="relative flex-1 max-w-md">
                                     <span className="absolute left-3 top-3 text-gray-400">🔍</span>
                                     <input
                                         type="text"
@@ -977,6 +1027,13 @@
                                         onChange={e => setSearchTerm(e.target.value)}
                                     />
                                 </div>
+                                <button
+                                    onClick={() => setSortVolunteersAlpha(!sortVolunteersAlpha)}
+                                    className={`px-4 py-2 rounded-lg font-medium ${sortVolunteersAlpha ? 'bg-blue-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                                    title="Trier par ordre alphabétique"
+                                >
+                                    {sortVolunteersAlpha ? '✓ A→Z' : 'A→Z'}
+                                </button>
                             </div>
                             {filteredVolunteers.length === 0 ? (
                                 <div className="bg-white rounded-lg shadow p-8 text-center text-gray-500">
@@ -1181,7 +1238,7 @@
                                     <div className="space-y-3">
                                         {days.map(day => {
                                             const isDayExpanded = expandedDayId === day.id;
-                                            const dayPosts = posts.filter(p => p.dayId === day.id);
+                                            const dayPosts = posts.filter(p => p.dayId === day.id).sort((a, b) => a.nom.localeCompare(b.nom));
                                             
                                             return (
                                                 <div key={day.id} className="border rounded-lg overflow-hidden">
@@ -1208,11 +1265,11 @@
                                                                 </div>
                                                             ) : (
                                                                 <>
-                                                                    <div className="overflow-x-auto">
-                                                                        <table className="w-full border-collapse bg-white rounded-lg overflow-hidden">
-                                                                            <thead>
+                                                                    <div className="overflow-auto max-h-[600px] border rounded-lg">
+                                                                        <table className="w-full border-collapse bg-white relative">
+                                                                            <thead className="sticky top-0 z-10 bg-gray-100">
                                                                                 <tr>
-                                                                                    <th className="sticky left-0 bg-gray-100 border p-2 font-bold min-w-[150px]">
+                                                                                    <th className="sticky left-0 bg-gray-100 border p-2 font-bold min-w-[150px] z-20">
                                                                                         Poste / Horaire
                                                                                     </th>
                                                                                     {HOURS.map(hour => (
@@ -1226,7 +1283,7 @@
                                                                                 {dayPosts.map(post => (
                                                                                     <tr key={post.id}>
                                                                                         <td 
-                                                                                            className="sticky left-0 border p-2 font-bold text-white"
+                                                                                            className="sticky left-0 border p-2 font-bold text-white z-10"
                                                                                             style={{ backgroundColor: post.couleur }}
                                                                                         >
                                                                                             {post.nom}
